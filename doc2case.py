@@ -5,11 +5,8 @@ doc2case
 ~~~~~~~~
 Transcribe document-style I/O from the problem sets into the case format.
 
-Requirement:
-    python 3.0+ (probably, but 3.5 will do anyway)
-
 Usage:
-    ./doc2json_IO.py [-h] [-m directory] [-t type] filename
+    ./doc2case.py [-h] [-m directory] [-t type] filename
 
     directory:
         Path to the /dev/cases folder. If specified, this script will read the
@@ -29,16 +26,20 @@ Usage:
         draft with yours. Make sure to download the draft on Google Docs as
         plain text so that this script can read it.
 
-Recognizable format:
+Example:
+    $ ./doc2case.py -m ~/Dropbox/WiC-BPC-Fa15/Solutions/dev/cases -t corner ./Fa15ASkyFullofUnicorns.txt
+
+    A folder called "cases" will be created in the current working directory.
+    A file will be created for each of your IO in ./Fa15ASkyFullofUnicorns.txt
+    and the corresponding IO file in ~/Dropbox/WiC-BPC-Fa15/Solutions/dev/cases
+    merged. The files are named from "problem1_corner.json" to
+    "problem15_corner.json".
+
+IO Format:
     Reasonable format similar to those of the examples.
 
-Example:
-    $ ./doc2json_IO.py -m ~/Dropbox/WiC-BPC-Wi16/Solutions/dev/cases/ -t=corner
-    ./Wi16BPCFantasticFelines.txt
-
-    A folder called "cases" will be created in the current working directory,
-    which contains .json files for each of your IO, which are named from
-    "problem1_corner.json" to "problem15_corner.json".
+Requirement:
+    python 3.0 (probably, but 3.5 will do anyway)
 
 Note:
     Manual validating the output is required.
@@ -126,9 +127,7 @@ def guess_json(text):
     for COMP in FORMAT_COMPLEMENTS:
         for REPL in FORMAT_REPLACEMENS:
             try:
-                guess = COMP.format(text.replace(*REPL))
-                print(text, guess)
-                return json.loads(guess)
+                return json.loads(COMP.format(text.replace(*REPL)))
             except json.JSONDecodeError:
                 pass
     raise json.JSONDecodeError
@@ -233,10 +232,10 @@ def get_merge_filenames(merge_dir, *, io_type=None, examples=None, filename=None
     return merge_files
 
 
-parser = argparse.ArgumentParser(description='Transcribes the document-style I/O on the problem sets into the case format.')
-parser.add_argument('filename', help='\"problem sets\".txt')
-parser.add_argument('-m', metavar='directory', required=False, default=None, help='path to /dev/cases')
-parser.add_argument('-t', metavar='type', required=False, default='', help='type of your IO')
+parser = argparse.ArgumentParser()
+parser.add_argument('-m', metavar='directory', required=False, default=None, help='path to the /dev/cases folder')
+parser.add_argument('-t', metavar='type', required=False, default='', help='type of the IO')
+parser.add_argument('filename', help='the IO to transcribe')
 args = parser.parse_args()
 filename, merge_dir, io_type = args.filename, args.m, args.t
 
