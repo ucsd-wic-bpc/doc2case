@@ -120,6 +120,7 @@ FORMAT_REPLACEMENS = [('', '')] + [('\'', '\"'), ('\n', ','), ('\'', '\\\''), ('
 
 DIR = 'cases/'
 PRESET_IO_TYPES = frozenset(['corner', 'sample', 'general'])
+PATTERN_FILENAMES = r'problem(\d+)_\w+.json'
 
 def guess_json(text):
     # Strip whitespaces
@@ -219,16 +220,21 @@ def recognize_example(raw, merge_json=None):
     output = {'cases' : json_cases}
     return output
 
-def get_merge_filenames(merge_dir, *, io_type=None, examples=None, filename=None):
+def get_merge_filenames(merge_dir, *, io_type=None, examples=None):
     merge_files = os.listdir(merge_dir)
-    merge_files = list(filter(lambda x: x.endswith('.json'), merge_files))
-    if examples and len(merge_files) != len(examples):
+    merge_files = [f for f in merge_files if f.endswith('.json')]
+    if merge_files and examples and len(merge_files) != len(examples):
         if io_type in PRESET_IO_TYPES:
-            possible_files = list(filter(lambda x: io_type in x, merge_files))
+            possible_files = [f for f in merge_files if io_type in f]
             if len(possible_files) == len(examples):
-                return possible_files
-        raise ValueError('Found {nexp} examples from {filename}, but there are {nmerge} JSON files from {path_merge} to merge with.'
-                         .format(nexp=len(examples), filename=filename, nmerge=len(merge_files), path_merge=merge_dir))
+                try:
+                    possible_files.sort(key=lambda x:
+                                        int(re.search(PATTERN_FILENAMES, x).group(1)))
+                    return possible_files
+                except AttributeError:
+                    merge_files = []
+        raise ValueError('Found {nexp} examples from the problem set, but there are {nmerge} files from the cases folder to merge with.'
+                         .format(nexp=len(examples), nmerge=len(merge_files)))
     return merge_files
 
 
@@ -276,14 +282,14 @@ else:
 if merge_dir:
     # Load the files to merge
     merge_jsons = []
-    merge_files = get_merge_filenames(merge_dir, io_type=io_type, examples=examples, filename=filename)
+    merge_files = get_merge_filenames(merge_dir, io_type=io_type, examples=examples)
     merge_files = map(lambda x: os.path.join(merge_dir, x), merge_files)
     for merge_file in merge_files:
         with open(merge_file) as fin:
             try:
                 mjson = json.load(fin, object_pairs_hook=OrderedDict)
             except json.JSONDecodeError as e:
-                raise ValueError('{} cannot be parsed as JSON'.format(merge_file)) from e
+                raise ValueError('{} has invalid format'.format(merge_file)) from e
             else:
                 merge_jsons.append(mjson)
     jsons = [recognize_example(*raw_cases) for raw_cases in zip(examples, merge_jsons)]
