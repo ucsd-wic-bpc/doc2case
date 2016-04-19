@@ -71,11 +71,9 @@ INDENT = 3
 SPACE = " "
 NEWLINE = "\n"
 
-is_narray = False
-
-
 def to_json(o, level=0, is_in_array=False):
-    global is_narray
+    if level == 0:
+        to_json.is_narray = False
     ret = ""
     if isinstance(o, dict):
         ret += "{" + NEWLINE
@@ -93,11 +91,11 @@ def to_json(o, level=0, is_in_array=False):
     elif isinstance(o, list):
         elements = [to_json(e, level + 1, True) for e in o]
         if is_in_array:
-            is_narray = True
-        if not is_in_array and is_narray:
+            to_json.is_narray = True
+        if not is_in_array and to_json.is_narray:
             elements = map(lambda x: '\n' + SPACE * INDENT * (level + 1) + x, elements)
             ret += "[" + ','.join(elements) + '\n' + SPACE * INDENT * level + "]"
-            is_narray = False
+            to_json.is_narray = False
         else:
             ret += "[" + ', '.join(elements) + "]"
     elif isinstance(o, bool):
@@ -113,99 +111,7 @@ def to_json(o, level=0, is_in_array=False):
         raise TypeError("Unknown type '%s' for json serialization" % str(type(o)))
     return ret
 
-
-def memo(f):
-    def _f(*args):
-        try:
-            return cache[args]
-        except KeyError:
-            data = cache[args] = f(*args)
-            return data
-    cache = {}
-    return _f
-
-
-def extend_example(target, data, name):
-    """
-    :param dict target: dict that will be written to file
-    :param [object] data: list of elements comments to add to target
-    :param str name: tag name of each element from data in target
-    """
-    try:
-        cases = target['cases']
-    except KeyError:
-        cases = target['cases'] = OrderedDict()
-
-    offset = max(cases)
-    for i, d in enumerate(data):
-        ordinal = str(offset + i)
-        try:
-            case = cases[ordinal]
-        except KeyError:
-            case = cases[ordinal] = OrderedDict()
-        case[name] = d
-
-
-def export_examples(dicts, io_type, suffix):
-    name = '{dir}problem{{num}}{type}'.format(dir=OUT_DIR, type=io_type) + suffix
-    for d in dicts:
-        os.makedirs(OUT_DIR, exist_ok=True)
-        with open(name.format(num=d.pop(PBLM_NUM)), 'w') as fout:
-            fout.write(to_json(d))
-
-PBLM_NUM = 'PNUM'
-
-
-def insert_dict(target, tag):
-    def get_value(d, k):
-        try:
-            return d[k]
-        except KeyError:
-            v = d[k] = OrderedDict()
-            return v
-
-    cases = get_value(target, 'cases')
-    len_cases = len(cases)
-    while True:
-        offset, value = yield len_cases
-        case = get_value(cases, str(offset))
-        case[tag] = value
-
-
-def get_joining_filenames(join_path, cnt_examples, io_type):
-    filenames = [f for f in os.listdir(join_path) if f.endswith('.json')]
-    if len(filenames) != cnt_examples:
-        if io_type in PRESET_IO_TYPES:
-            filenames = [f for f in filenames if io_type in f]
-
-    if len(filenames) == cnt_examples:
-        try:
-            filenames.sort(key=lambda x: int(
-                           re.search(r'problem(\d+)_\w+.json', x).group(1)))
-            return filenames
-        except AttributeError:  # Some filenames are not of the format 'problemXX.json'
-            pass
-
-    raise ValueError('Found {} examples from the problem set, but there are {} files from the cases folder to join with.'
-                     .format(cnt_examples, len(filenames)))
-
-PRESET_IO_TYPES = frozenset(['corner', 'sample', 'general'])
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('-j', '--join', metavar='path', default=None,
-                        help='path to the /dev/cases folder')
-    parser.add_argument('-t', '--type', metavar='type', default='', help='type of the IO')
-    parser.add_argument('-d', '--dest', metavar='type', default=SEP,
-                        choices=(SEP, TGTH), help='save IO seperately or together')
-    parser.add_argument('filename', help='the file to transcribe')
-    args = parser.parse_args()
-    return args
-
-SEP = 'seperate'
-TGTH = 'together'
-
+to_json.is_narray = False
 
 class TypeParser:
     """Parse tokens with the help of types from method signature
@@ -290,15 +196,11 @@ class TypeParser:
                     self.types.append(type_)
         else:
             self.types = None
-        # print(strs_type)
-        # print(self.types)
 
     def parse(self, text):
         """
         :return object:
         """
-        # TODO could contain multiple arguments
-        # TODO continue to split string if necessary
         stack = []
         curr = []
         local_depth = 0
@@ -326,7 +228,7 @@ class TypeParser:
         if stack:
             raise SyntaxError('missing closing brackets')
 
-        # print(curr)
+        print(curr)
         data = curr
         if self.types:
             try:
@@ -335,6 +237,7 @@ class TypeParser:
                 e.args = ('{}: type ( {} ) is required, but type ( {} ) is given in {}'.format(
                     e.args[0], ' * '.join(t + self.LIST * d for t, d in self.types), ' * '.join(stypes), repr(text)),)
                 raise
+        # print(data)
         return data
 
     def _assemble(self, data):
@@ -343,14 +246,12 @@ class TypeParser:
                 return (max(get_depth(d) for d in data) if data else 0) + 1
             return 0
 
-        # Check data depth
         expected_depth = max(d for t, d in self.types)
         max_depth = get_depth(data) - 1
 
         while max_depth > expected_depth and len(data) == 1 and isinstance(data[0], list):
             [data] = data  # do not need the outmost list wrapper
             max_depth -= 1
-        # assert expected_depth = self.types[0][1] > 0
         while max_depth < expected_depth and len(self.types) == 1:
             data = [data]  # need the outmost list wrapper
             max_depth += 1
@@ -359,7 +260,7 @@ class TypeParser:
             return data
 
         if max_depth < expected_depth:
-            # Assemble data
+            # Assemble elements into lists
             types = list(self.types)
             ll, rl = [], []
             while len(data) > 1 and len(types) > 1:
@@ -377,13 +278,13 @@ class TypeParser:
                     types.pop()
                     data.pop()
                 else:
+                    # Types are like a[], a, ..., a[]
                     # TODO time to split multiple arrays again by comma
                     raise NotImplementedError('cannot parse multiple arrays')
             ll.append(data)
             ll.extend(reversed(rl))
             data = ll
 
-            # print('data assembled', data)
             return data
 
         raise TypeError('lists in the data have dimension {}, but the method signature specifies {}'.format(
@@ -406,9 +307,6 @@ class TypeParser:
         len_type = len(self.types)
         delta = len(data) - len_type
 
-        # print(self.types)
-        # print(data)
-        # print(self.types, data)
         if delta > 0:
             if len_type == 1 and self.types[0][0] == self.STR:
                 # Parse the whole data as a string
@@ -527,7 +425,15 @@ class Tokenizer:
         """Return parsed tokens in lines.
         :return [[Token]]:
         """
-        return [self._tokens(line) for line in self.text.split('\n')]
+        str_lns = self.text.split('\n')
+        max_width = max(map(len, str_lns))
+        lines = []
+        for ln in str_lns:
+            tks = self._tokens(ln)
+            # Attach Space tokens at the end of each line for find_margins_one_way
+            tks.append(self.Space(len(ln), max_width))
+            lines.append(tks)
+        return lines
 
     def line(self):
         """Return parsed tokens in one list.
@@ -543,7 +449,6 @@ class Tokenizer:
             raise
 
     def _run(self, text):
-        # Assume the first argument start with no spaces
         State = self.State
         text = list(text)
         text.append(self.END)
@@ -572,8 +477,8 @@ class Tokenizer:
                     buf.append(c)
                     state = State.PARR
                 elif c in self.ARROW_BODIES:
+                    buf.append(c)
                     state = State.ARR
-                    i -= 1
                 elif c == self.COMMA:
                     self._tokenize(tokens, buf)
                 elif c == self.END:
@@ -624,8 +529,8 @@ class Tokenizer:
             elif state is State.PARR:
                 if c == self.SPACE:
                     buf.append(c)
-                elif c == self.END:
-                    raise SyntaxError('no identifier on the right-hand side of arrow')
+                # elif c == self.END:
+                #     raise SyntaxError('no identifier on the right-hand side of arrow')
                 else:
                     self._tokenize_arrow(tokens, buf, i)
                     state = State.NORMAL
@@ -653,9 +558,6 @@ class Tokenizer:
             else:
                 raise RuntimeError('corrupted state')
             i += 1
-        i -= 1  # for self.END
-        # TODO replace with self.END
-        tokens.append(self.Space(i, i))
 
         return tokens
 
@@ -770,13 +672,15 @@ class Tokenizer:
 
 class ExampleParser:
     PAT_IO_HEADERS = re.compile(
-        r'\s*(?:Sample )?Input:((?:.|\n)+?)(?:Sample )?Output:((?:.|\n)+?)(?=(?:Sample )?Input:)', re.IGNORECASE)
+        r'\s*(?:Sample )?Input:((?:.|\n)+?)(?:Sample )?Output:((?:.|\n)+?)(?=(?:Sample )?Input:)',
+        re.IGNORECASE)
 
     RATIO_WM = 1.8  # delta width / delta mid, for calculating weighted distance in find_margins_one_way
 
     def __init__(self, text, ts_param=None, ts_ret=None):
         self.text = text
-        self.strs_ln = text.split('\n')
+        self.str_lns = text.split('\n')
+        self.chars_lns = [list(ln) for ln in self.str_lns]
         self.params = TypeParser(ts_param)
         self.rets = TypeParser(ts_ret)
 
@@ -784,17 +688,12 @@ class ExampleParser:
         """Parse cases, within each of which there is a pair of input and output.
         :return (object, object, [str]): input, output, comments
         """
-        # print()
-        # for data in self._parse_cases():
-        #     print('cases:', data)
         cases = self.PAT_IO_HEADERS.findall(self.text + 'Input:')
         try:
             # TODO how about cmts?
             cases = [(case, []) for case in cases] if cases else self._parse_cases()
             return [(self.params.parse(i), self.rets.parse(o), cmts) for (i, o), cmts in cases]
         except (ValueError, SyntaxError) as e:
-            # e.args = ('{} in {}'.format(e.args[0], repr(self.text)), )
-            # print(e)
             raise type(e)('{} in {}'.format(e.args[0], repr(self.text))) from e
 
     def _parse_cases(self):
@@ -819,13 +718,25 @@ class ExampleParser:
                     has_arrow = True
                 elif isinstance(token, Tokenizer.Comment):
                     cmts.append(token.text)
-
+                else:
+                    continue
+                # Remove comments and arrow from text
+                l, r = token.range
+                self.chars_lns[ifront][l:r] = ' ' * (r - l)
+                        
             if has_arrow:
                 if ilast_arrow is not None:
-                    if ifront - ilast_arrow == 1:
+                    arrow_dist = ifront - ilast_arrow
+                    if arrow_dist in (1, 2):
                         # 1. Two arrows in two consequtive lines means there is a case until the
                         # first line
-                        case = self._make_case(lines, irear, ifront, ilast_arrow)
+                        case = self._make_case(lines, irear, ilast_arrow + 1, ilast_arrow)
+
+                        if arrow_dist == 2:
+                            # 5. Unless there is only one line between two arrows, assuming the
+                            # middle line is comment of the upper case
+                            cmts.append(self.str_lns[ifront - 1])
+
                         cases.append((case, cmts))
                         cmts = []
                         irear = ifront
@@ -836,7 +747,6 @@ class ExampleParser:
                 ilast_arrow = ifront
 
             elif len(line) == 1:  # for trailing Tokenizer.Space
-                # elif line == []:
                 if irear == ifront:
                     pass  # consecutive empty lines
                 elif ilast_arrow is not None:
@@ -847,11 +757,11 @@ class ExampleParser:
                     ilast_arrow = None
                 else:
                     # 3. Lines without an arrow in them cannot be a case. Assume comments.
-                    if not cases:
-                        raise ValueError('cannot have comments before cases')
-                    cmts.append('\n'.join(self.strs_ln[irear:ifront]))
-                    cases[-1][1].extend(cmts)
-                    cmts = []
+                    cmts.append('\n'.join(self.str_lns[irear:ifront]))
+                    if cases:
+                        # Attach comments to the case above it
+                        cases[-1][1].extend(cmts)
+                        cmts = []
                 irear = ifront + 1
 
         return cases
@@ -861,26 +771,13 @@ class ExampleParser:
         :param [Token] lines:
         :return (str, str):
         """
-        lines, strs_ln = lines[irear:ifront], self.strs_ln[irear:ifront]
+        lines, chars_lns = lines[irear:ifront], self.chars_lns[irear:ifront]
         iarrow -= irear
-
-        # print('tokens before:', iarrow, lines)
         for token in lines[iarrow]:
             if isinstance(token, Tokenizer.Arrow):
                 break  # assert lines[iarrow].count(token) == 1
-
-        broken_lns = []
         margins = self.find_margins(lines, iarrow, token.range)
-        for str_ln, (_, rmargin), line in zip(strs_ln, margins, lines):
-            char_ln = list(str_ln)
-            # Remove non-data characters. Remove after splitting to preserving
-            # the structure of text
-            # Remove comments and arrow
-            for l, r in [tk.range for tk in line if isinstance(tk, Tokenizer._RangeToken)]:
-                char_ln[l:r] = ' ' * (r - l)
-
-            broken_lns.append(map(''.join, (char_ln[:rmargin], char_ln[rmargin:])))
-
+        broken_lns = [map(''.join, (cln[:r], cln[r:])) for cln, (_, r) in zip(chars_lns, margins)]
         return tuple(map('\n'.join, zip(*broken_lns)))
 
     @classmethod
@@ -889,8 +786,6 @@ class ExampleParser:
             lines[iarrow - 1::-1], *arrow_range)) if iarrow > 0 else []
         lower = cls.find_margins_one_way(
             lines[iarrow + 1:], *arrow_range) if iarrow < len(lines) - 1 else []
-        # print('lines', lines)
-        # print('upper, lower', upper, lower)
         return chain(upper, [arrow_range], lower)
 
     @classmethod
@@ -963,7 +858,8 @@ class DocParser:
     """The top-level parser."""
     PAT_BRKTS = re.compile(r'(?<=\n)(\[\w\]).*?\n')
     PAT_EXAMPLE = re.compile(
-        r'Problem\s*(\d+)\s*:(?:.|\n)+?Examples?\s*:\n((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:\n\s*/\*\n((?:.|\n)+?)\s*\*/', re.IGNORECASE)
+        r'(?:Problem\s*(\d+)(?:.|\n)+?)?Examples?\s*:[\s\n]*((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:?[\s\n]*/\*[\s\n]*((?:.|\n)+?)\s*\*/',
+        re.IGNORECASE)
     PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(\s*(\[\])*)?)(?:\s|$)')
     # Unfortunately, not all types in method signature end with a dash
     # PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(?:\w+\s+)?[–-]?.*(?:!=,)')
@@ -975,12 +871,12 @@ class DocParser:
 
     @classmethod
     def _refine(cls, text):
-        # Remove possible brackets of comment indices at the end of lines
         # TODO may replace text in test cases
+        # Remove possible brackets of comment indices at the end of lines
         brkts = cls.PAT_BRKTS.findall(text + '\n')
         ifst = len(brkts)
-        for i, bracket in enumerate(brkts):
-            if bracket == '[a]':
+        for i, brkt in enumerate(brkts):
+            if brkt == '[a]':
                 ifst = i
         brkts = brkts[ifst:]
         brkts = map(re.escape, brkts)
@@ -998,23 +894,26 @@ class DocParser:
         """
         # Find examples in release
         strs_example = self.PAT_EXAMPLE.findall(self.text)
-
-        # In case there is a metaexample
         if len(strs_example) == 16:
+            # In case there is a metaexample
             del strs_example[0]
         elif len(strs_example) == 0:
-            strs_example = [(1, self.text, '')]
+            strs_example = [('', self.text, '')]
 
-        # print(strs_example)
         examples = []
+        default_pnum = 0
         for pnum, str_data, str_sign in strs_example:
             try:
                 ts_param = self._parse_signature(str_sign, 'Parameters:')
                 ts_ret = self._parse_signature(str_sign, 'Return:')
                 example = ExampleParser(str_data, ts_param, ts_ret).parse()
+                if not pnum:
+                    default_pnum += 1
+                    pnum = '_default_{}'.format(default_pnum)
                 examples.append((pnum, example))
             except Exception as e:
-                e.args = (e.args[0] + ' at problem ' + pnum, )
+                location = ' at {} {}'.format('problem', pnum) if pnum else ''
+                e.args = (e.args[0] + location,)
                 print(e)
                 print()
                 # raise
@@ -1024,7 +923,7 @@ class DocParser:
     def _parse_signature(cls, text, start=None):
         """Parse types in a Javadoc-style method signature
         :param str start: paring types after the first occurence of start in text
-        :return TypeParser:
+        :return str:
         """
         if start:
             istart = text.find(start)
@@ -1051,58 +950,121 @@ class DocParser:
 
         return strs_type if strs_type else None
 
+def extend_dicts(examples, dicts_in, dicts_out):
+    def insert_dict(target, tag):
+        def get_value(d, k):
+            try:
+                return d[k]
+            except KeyError:
+                v = d[k] = OrderedDict()
+                return v
 
-def main():
-    # Get arguments
-    args = parse_args()
-    filein, join_path, io_type, dest = args.filename, args.join, args.type, args.dest
+        cases = get_value(target, 'cases')
+        len_cases = len(cases)
+        while True:
+            offset, value = yield len_cases
+            case = get_value(cases, str(offset))
+            case[tag] = value
 
-    # Parse the document
-    with open(filein) as fin:
-        text = fin.read()
-    examples = DocParser(text).parse()
-    len_examples = len(examples)
-
-    # # Get files to join
-    # if join_path:
-    #     targets = []
-    #     filenames = get_joining_filenames(join_path, len(examples), io_type)
-    #     for filename in filenames:
-    #         with open(os.path.join(join_path, filename)) as fin:
-    #             try:
-    #                 target = json.load(fin, object_pairs_hook=OrderedDict)
-    #             except json.JSONDecodeError:
-    #                 raise ValueError('{} has invalid format'.format(filename)) from None
-    #         targets.append(target)
-    # else:
-    #     targets = (OrderedDict() for _ in iter(int, 1))
-
-    # Set saving destinations
-    make_targets = lambda: [OrderedDict() for _ in range(len_examples)]
-    if dest == SEP:
-        dicts_in = make_targets()
-        dicts_out = make_targets()
-    elif dest == TGTH:
-        dicts_in = dicts_out = make_targets()
-
-    # Join examples with target dicts
     for (pnum, example), dict_in, dict_out in zip(examples, dicts_in, dicts_out):
         dict_in[PBLM_NUM] = dict_out[PBLM_NUM] = pnum
         gi = insert_dict(dict_in, 'input')
         go = insert_dict(dict_out, 'output')
         gc1 = insert_dict(dict_in, 'comments')
         gc2 = insert_dict(dict_out, 'comments')
+        
         offset = max(map(next, (gi, go, gc1, gc2)))
         for i, (data_in, data_out, cmts) in enumerate(example):
             ordinal = offset + i
-            if not isinstance(data_in, list):
-                data_in = [data_in]  # TODO all data should be list. done in TypeParser
+            
+            # Input is always wrapped by a list, no matter how many arguments it has
             gi.send((ordinal, data_in))
-            assert len(data_out) == 1, 'Number of returned value should be 1'
-            go.send((ordinal, data_out[0]))
+ 
+            if len(data_out) == 1:
+                # TypeParser always wraps data with a list, which should
+                # be taken off on output. If the original data is not wrapped
+                # by a list while having multiple elements, then there is no
+                # need to cancel out the wrapper list.
+                [data_out] = data_out
+            go.send((ordinal, data_out))
+
             if cmts:
                 gc1.send((ordinal, cmts))
                 gc2.send((ordinal, cmts))
+
+
+def export_examples(dicts, io_type, suffix):
+    name = '{dir}problem{{num}}{type}'.format(dir=OUT_DIR, type=io_type) + suffix
+    for d in dicts:
+        os.makedirs(OUT_DIR, exist_ok=True)
+        with open(name.format(num=d.pop(PBLM_NUM)), 'w') as fout:
+            fout.write(to_json(d))
+
+PBLM_NUM = 'PNUM'
+
+
+def get_joining_filenames(join_path, cnt_examples, io_type):
+    filenames = [f for f in os.listdir(join_path) if f.endswith('.json')]
+    if len(filenames) != cnt_examples:
+        if io_type in PRESET_IO_TYPES:
+            filenames = [f for f in filenames if io_type in f]
+
+    if len(filenames) == cnt_examples:
+        try:
+            filenames.sort(key=lambda x: int(
+                           re.search(r'problem(\d+)_\w+.json', x).group(1)))
+            return filenames
+        except AttributeError:  # Some filenames are not of the format 'problemXX.json'
+            pass
+
+    raise ValueError('Found {} examples from the problem set, but there are {} files from the cases folder to join with.'
+                     .format(cnt_examples, len(filenames)))
+
+PRESET_IO_TYPES = frozenset(['corner', 'sample', 'general'])
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-j', '--join', metavar='path', default=None,
+                        help='path to the /dev/cases folder')
+    parser.add_argument('-t', '--type', metavar='type', default='', help='type of the IO')
+    parser.add_argument('filename', help='the file to transcribe')
+    args = parser.parse_args()
+    return args
+
+def main():
+    # Get arguments
+    args = parse_args()
+    filein, join_path, io_type = args.filename, args.join, args.type
+
+    # Parse the document
+    with open(filein) as fin:
+        text = fin.read()
+    examples = DocParser(text).parse()
+    len_examples = len(examples)
+    if len_examples == 0:
+        print('No valid problem found in this file')
+        return
+
+    # Get files to join
+    if join_path:
+        targets = []
+        filenames = get_joining_filenames(join_path, len(examples), io_type)
+        for filename in filenames:
+            with open(os.path.join(join_path, filename)) as fin:
+                try:
+                    target = json.load(fin, object_pairs_hook=OrderedDict)
+                except json.JSONDecodeError:
+                    raise ValueError('{} has invalid format'.format(filename)) from None
+            targets.append(target)
+    else:
+        targets = (OrderedDict() for _ in iter(int, 1))
+
+    # Set saving destinations
+    dicts_in = dicts_out = [OrderedDict() for _ in range(len_examples)]
+
+    # Join examples with target dicts
+    extend_dicts(examples, dicts_in, dicts_out)
 
     # Check output directory
     if os.path.isdir(OUT_DIR):
@@ -1112,8 +1074,8 @@ def main():
 
     # Write target dicts to files
     io_type = '_' + io_type if io_type else ''
-    for dicts, suffix in zip((dicts_in, dicts_out), ('.in', '.out')):
-        export_examples(dicts, io_type, suffix)
+    export_examples(dicts_in, io_type, '.json')
+
 
 if __name__ == '__main__':
     main()
