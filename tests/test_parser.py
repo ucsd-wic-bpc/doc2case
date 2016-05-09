@@ -18,14 +18,14 @@ class TestTokenizer(BaseTest):
 
     def compare(self, text, expected):
         actual = Tk(text).lines()
-        actual = [[e for e in ln if not (isinstance(e, Tk.Space) and e.range[0] == e.range[1])] for ln in actual]
+        print(actual)
+        # actual = [[e for e in ln if not (isinstance(e, Tk.Space) and e.range[0] == e.range[1])] for ln in actual]
         # for line, e in zip(text.split('\n'), expected):
         #     new_expected.append(e)
         #     if not(e and isinstance(e[-1], Tk.Space)):
         #         length = len(line) + line.count(Tk.TAB) * (Tk.TAB_WIDTH - 1)
         #         e.append(Tk.Space(length, length))
         # self.assertEqual(actual, new_expected)
-        # print(actual)
         self.assertEqual(actual, expected)
 
     # @unittest.skip('')
@@ -47,24 +47,16 @@ class TestTokenizer(BaseTest):
     def test_arrow(self):
         text = '123=>4\n1 3 ⇒4a\n0        -> 7\n123 =>> 4\n123    -->> 4\n123 ---  4\n 123 >-    5\n'
         expected = [
-            [123, Tk.Arrow(3, 5), 4],
-            ['1 3', Tk.Arrow(3, 5), '4a'],
-            [0, Tk.Arrow(1, 12), 7],
-            [123, Tk.Arrow(3, 8), 4],
-            [123, Tk.Arrow(3, 12), 4],
-            ['123 ---', Tk.Space(7, 9), 4],
-            ['123 >-', Tk.Space(7, 11), 5],
-            []
+            [123, Tk.Arrow(3, 5), 4, Tk.Space(6, 13)],
+            ['1 3', Tk.Arrow(3, 5), '4a', Tk.Space(7, 13)],
+            [0, Tk.Arrow(1, 12), 7, Tk.Space(13, 13)],
+            [123, Tk.Arrow(3, 8), 4, Tk.Space(9, 13)],
+            [123, Tk.Arrow(3, 12), 4, Tk.Space(13, 13)],
+            ['123 ---', Tk.Space(7, 9), 4, Tk.Space(10, 13)],
+            ['123 >-', Tk.Space(7, 11), 5, Tk.Space(12, 13)],
+            [Tk.Space(0, 13)]
         ]
         self.compare(text, expected)
-
-        text = '123 => '
-        try:
-            self.compare(text, None)
-        except SyntaxError:
-            pass
-        else:
-            self.fail('No exception raised')
 
     # @unittest.skip('')
     def test_brackets(self):
@@ -147,7 +139,7 @@ class TestExampleParser(BaseTest):
                 " [1, 5, 3],           [0, 5, 3],\n"
                 " [9, 0, 1]],3,L        => [1, 3, 4]]")
         expected = [
-            '[[2, 3, 4], [1, 5, 3], [9, 0, 1]],3,L',
+            '[[2, 3, 4], [1, 5, 3], [9, 0, 1]],3,L=>', # _make_case does not remove arrows or comments
             '[[9, 1, 2], [0, 5, 3], [1, 3, 4]]'
         ]
         compare(expected, text, 2)

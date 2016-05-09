@@ -228,7 +228,7 @@ class TypeParser:
         if stack:
             raise SyntaxError('missing closing brackets')
 
-        print(curr)
+        # print(curr)
         data = curr
         if self.types:
             try:
@@ -858,11 +858,11 @@ class DocParser:
     """The top-level parser."""
     PAT_BRKTS = re.compile(r'(?<=\n)(\[\w\]).*?\n')
     PAT_EXAMPLE = re.compile(
-        r'(?:Problem\s*(\d+)(?:.|\n)+?)?Examples?\s*:[\s\n]*((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:?[\s\n]*/\*[\s\n]*((?:.|\n)+?)\s*\*/',
+        r'(?:Problem\s*(\d+):\s*(.+?)\n(?:.|\n)+?)?Examples?\s*:\n[\s\n]*((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:?[\s\n]*/\*[\s\n]*((?:.|\n)+?)\s*\*/',
         re.IGNORECASE)
-    PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(\s*(\[\])*)?)(?:\s|$)')
-    # Unfortunately, not all types in method signature end with a dash
-    # PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(?:\w+\s+)?[–-]?.*(?:!=,)')
+    # PAT_TYPE_ENTRY_ONE_LINE = re.compile(r'^\s*\*?\s*(\w+(\s*(\[\])*)?)(?:\s|$)') # TODO does not parse param name
+    # note: Not all types in method signature end with a dash
+    PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(\w+)?\s*(?:\w+\s+)?[–-]\s*(\w+)?$')
 
     TAB_WIDTH = 4
 
@@ -880,7 +880,7 @@ class DocParser:
                 ifst = i
         brkts = brkts[ifst:]
         brkts = map(re.escape, brkts)
-        brkts = map(r'({})$'.format, brkts)
+        brkts = map(r'({})'.format, brkts)
         text = re.sub(r'|'.join(brkts), '', text)
 
         # Replace tabs
@@ -889,8 +889,33 @@ class DocParser:
         return text
 
     def parse(self):
-        """Extract strings of each example in a document, and pass them to ExampleParser.
+        """Parse examples in a document
         :return [object, object, [str]]: data_in, data_out, comments
+        """
+        parsed_examples = []
+        default_pnum = 0
+        for ((pnum, _), str_data, params, ret) in self.findall():
+            try:
+                ts_params = [ts_param for (ts_param, _, _) in params]
+                ts_ret = [ts_ret for (ts_ret, _, _) in ret]
+                example = ExampleParser(str_data, ts_params, ts_ret).parse()
+                if not pnum:
+                    default_pnum += 1
+                    pnum = '_default_{}'.format(default_pnum)
+                parsed_examples.append((pnum, example))
+
+            except Exception as e:
+                location = ' at {} {}'.format('problem', pnum) if pnum else ''
+                e.args = (e.args[0] + location,)
+                print(e)
+                print()
+                # raise
+        return parsed_examples
+
+    def findall(self):
+        """Extract the most important data of examples from a document
+        :return [((str, str), str, [(str, str, str)], (str, str, str))]:
+            (problem_number, problem_name), data, [(param_type, param_name, param_desc)], [(return_type, return_name, return_desc)]
         """
         # Find examples in release
         strs_example = self.PAT_EXAMPLE.findall(self.text)
@@ -901,54 +926,51 @@ class DocParser:
             strs_example = [('', self.text, '')]
 
         examples = []
-        default_pnum = 0
-        for pnum, str_data, str_sign in strs_example:
-            try:
-                ts_param = self._parse_signature(str_sign, 'Parameters:')
-                ts_ret = self._parse_signature(str_sign, 'Return:')
-                example = ExampleParser(str_data, ts_param, ts_ret).parse()
-                if not pnum:
-                    default_pnum += 1
-                    pnum = '_default_{}'.format(default_pnum)
-                examples.append((pnum, example))
-            except Exception as e:
-                location = ' at {} {}'.format('problem', pnum) if pnum else ''
-                e.args = (e.args[0] + location,)
-                print(e)
-                print()
-                # raise
+        for pnum, pname, str_data, str_sign in strs_example:
+            params = self._parse_signature(str_sign, 'Parameters:')
+            ret = self._parse_signature(str_sign, 'Return:')
+            examples.append(((pnum, pname), str_data, params, ret))
         return examples
 
     @classmethod
     def _parse_signature(cls, text, start=None):
         """Parse types in a Javadoc-style method signature
         :param str start: paring types after the first occurence of start in text
-        :return str:
+        :return [(str, str, str)]: [(param_type, param_name, param_desc)]
         """
+        strs_type = []
+        print(text, start)
+        print()
         if start:
             istart = text.find(start)
-            if istart != -1:
+            if istart == -1:
+                return strs_type
+            else:
                 text = text[istart + len(start):]
 
-        strs_type = []
         for line in text.split('\n'):
             if line.isspace():
                 continue
 
-            sgms = line.split(',')
-            has_type = False
-            for sgm in sgms:
-                m = cls.PAT_TYPE_ENTRY.match(sgm)
-                if not m:
-                    break
-                has_type = True
-                strs_type.append(m.group(1).replace(
-                    ' ', '').replace('\t', ''))  # TODO more spaces?
-
-            if not has_type:
-                break
-
-        return strs_type if strs_type else None
+            # # Parameters in one line seperated by commas
+            # sgms = line.split(',')
+            # has_type = False
+            # for sgm in sgms:
+            #     m = cls.PAT_TYPE_ENTRY_ONE_LINE.match(sgm)
+            #     if not m:
+            #         break
+            #     has_type = True
+            #     strs_type.append(m.group(1).replace(
+            #         ' ', '').replace('\t', ''))
+            # if not has_type:
+            #     break
+                
+            # Parameter in multiple lines
+            m = cls.PAT_TYPE_ENTRY.match(line)
+            if m:
+                strs_type.append((m.group(1).replace(' ', '').replace('\t', ''), m.group(2), m.group(3)))
+            
+        return strs_type
 
 def extend_dicts(examples, dicts_in, dicts_out):
     def insert_dict(target, tag):
