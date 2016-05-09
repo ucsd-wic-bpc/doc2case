@@ -60,6 +60,7 @@ from collections import OrderedDict, Iterable
 from itertools import chain
 import argparse
 
+from utils import check_dir
 
 OUT_DIR = 'cases/'
 
@@ -119,13 +120,14 @@ class TypeParser:
     """
 
     GENERIC = 'a'
-    LIST = '[]'
+    _LIST = '[]'
     INT = 'int'
     STR = 'str'
     CHR = 'char'
     FLT = 'float'
     DBL = 'double'
     BOOL = 'boolean'
+    SLIST = 'list'
 
     TYPES = [
         (frozenset(['int', 'Integer', 'Int', 'long', 'Long']), INT),  # long long!?
@@ -136,14 +138,14 @@ class TypeParser:
         (frozenset(['bool', 'boolean', 'Boolean']), BOOL)
     ]
 
-    def _java_str(s):
+    def _java_str(s=''):
         if s is None:
             return None
         if isinstance(s, list):
             return ', '.join(map(str, s))
         return str(s)
 
-    def _bool(s):
+    def _bool(s='False'):
         if isinstance(s, bool):
             return s
         elif isinstance(s, str):
@@ -154,7 +156,7 @@ class TypeParser:
                 return False
         raise ValueError(repr(s) + ' is not a valid boolean')
 
-    def _char(c):
+    def _char(c=''):
         try:
             c = str(c)
         except TypeError:
@@ -165,7 +167,7 @@ class TypeParser:
         raise ValueError('invalid char ' + repr(c))
 
     def _to_num(f):
-        def _tn(s):
+        def _tn(s='0'):
             try:
                 return f(s)
             except Exception:
@@ -183,7 +185,8 @@ class TypeParser:
         CHR: _char,
         FLT: _to_num(float),
         DBL: _to_num(float),
-        BOOL: _bool
+        BOOL: _bool,
+        SLIST: list
     }
     del _java_str, _bool, _char, _to_num
 
@@ -217,7 +220,7 @@ class TypeParser:
                 last_curr.append(curr)
                 curr = last_curr
                 if len(stack) == 0:
-                    stypes.append(self.GENERIC + self.LIST * local_depth)
+                    stypes.append(self.GENERIC + self._LIST * local_depth)
                     local_depth = 0
             elif isinstance(token, Tokenizer.Token):
                 pass
@@ -235,7 +238,7 @@ class TypeParser:
                 data = self.cast(data)
             except TypeError as e:
                 e.args = ('{}: type ( {} ) is required, but type ( {} ) is given in {}'.format(
-                    e.args[0], ' * '.join(t + self.LIST * d for t, d in self.types), ' * '.join(stypes), repr(text)),)
+                    e.args[0], ' * '.join(t + self._LIST * d for t, d in self.types), ' * '.join(stypes), repr(text)),)
                 raise
         # print(data)
         return data
@@ -332,7 +335,7 @@ class TypeParser:
     @classmethod
     def _parse_type(cls, stype):
         depth = 0
-        while stype.endswith(cls.LIST):
+        while stype.endswith(cls._LIST):
             stype = stype[:-2]
             depth += 1
 
@@ -344,6 +347,20 @@ class TypeParser:
             return None
 
         return (type_, depth)
+
+    @classmethod
+    def get_valid_stype(cls, stype):
+        stype, depth = TypeParser._parse_type(stype)
+        if depth > 0:
+            stype = TypeParser.SLIST
+        return stype
+
+    @classmethod
+    def get_type(cls, stype):
+        st = cls._parse_type(stype)
+        if st:
+            st, depth = st
+            return list if depth > 0 else cls.FUNCS[st]
 
 
 class Tokenizer:
@@ -862,7 +879,8 @@ class DocParser:
         re.IGNORECASE)
     # PAT_TYPE_ENTRY_ONE_LINE = re.compile(r'^\s*\*?\s*(\w+(\s*(\[\])*)?)(?:\s|$)') # TODO does not parse param name
     # note: Not all types in method signature end with a dash
-    PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(\w+)?\s*(?:\w+\s+)?[–-]\s*(\w+)?$')
+    PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(\w+)?\s*(?:\w+\s+)?[–-]\s*(.+)?$', re.MULTILINE)
+    # TODO cannot parse multi-line comments
 
     TAB_WIDTH = 4
 
@@ -910,6 +928,10 @@ class DocParser:
                 print(e)
                 print()
                 # raise
+
+        if not examples:
+            raise ValueError('No valid problem found in this file')
+
         return parsed_examples
 
     def findall(self):
@@ -939,8 +961,6 @@ class DocParser:
         :return [(str, str, str)]: [(param_type, param_name, param_desc)]
         """
         strs_type = []
-        print(text, start)
-        print()
         if start:
             istart = text.find(start)
             if istart == -1:
@@ -1063,10 +1083,6 @@ def main():
     with open(filein) as fin:
         text = fin.read()
     examples = DocParser(text).parse()
-    len_examples = len(examples)
-    if len_examples == 0:
-        print('No valid problem found in this file')
-        return
 
     # Get files to join
     if join_path:
@@ -1083,16 +1099,13 @@ def main():
         targets = (OrderedDict() for _ in iter(int, 1))
 
     # Set saving destinations
-    dicts_in = dicts_out = [OrderedDict() for _ in range(len_examples)]
+    dicts_in = dicts_out = [OrderedDict() for _ in range(len(examples))]
 
     # Join examples with target dicts
     extend_dicts(examples, dicts_in, dicts_out)
 
     # Check output directory
-    if os.path.isdir(OUT_DIR):
-        msg = 'Directory {} already exsits. Overwrite? [y/n]: '.format(OUT_DIR)
-        if not input(msg).startswith('y'):
-            return
+    check_dir(OUT_DIR)
 
     # Write target dicts to files
     io_type = '_' + io_type if io_type else ''
