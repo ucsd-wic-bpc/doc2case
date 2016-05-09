@@ -63,3 +63,4 @@ target/
 
 cases/
 *.txt
+templates/
