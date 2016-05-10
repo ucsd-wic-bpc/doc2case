@@ -1,0 +1,3 @@
+[submodule "jsonFASTParse"]
+	path = jsonFASTParse
+	url = https://github.com/brandonio21/jsonFASTParse.git
