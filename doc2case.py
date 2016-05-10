@@ -60,7 +60,7 @@ from collections import OrderedDict, Iterable
 from itertools import chain
 import argparse
 
-from utils import check_dir
+from utils import print_list, check_dir, write_to_files
 
 OUT_DIR = 'cases/'
 
@@ -186,15 +186,23 @@ class TypeParser:
         FLT: _to_num(float),
         DBL: _to_num(float),
         BOOL: _bool,
-        SLIST: list
     }
     del _java_str, _bool, _char, _to_num
+
+    TYPES_MAPPING = {
+        INT: INT,
+        STR: STR,
+        CHR: STR,
+        FLT: FLT,
+        DBL: FLT,
+        BOOL: BOOL,
+    }
 
     def __init__(self, strs_type=None):
         if strs_type:
             self.types = []
             for t in strs_type:
-                type_ = self._parse_type(t)
+                type_ = self.parse_type(t)
                 if type_:
                     self.types.append(type_)
         else:
@@ -333,7 +341,7 @@ class TypeParser:
                         ' arguments than the method signature has specified')
 
     @classmethod
-    def _parse_type(cls, stype):
+    def parse_type(cls, stype):
         depth = 0
         while stype.endswith(cls._LIST):
             stype = stype[:-2]
@@ -349,15 +357,17 @@ class TypeParser:
         return (type_, depth)
 
     @classmethod
-    def get_valid_stype(cls, stype):
-        stype, depth = TypeParser._parse_type(stype)
+    def get_python_stype(cls, stype):
+        stype, depth = TypeParser.parse_type(stype)
         if depth > 0:
             stype = TypeParser.SLIST
+        else:
+            stype = cls.TYPES_MAPPING[stype]
         return stype
 
     @classmethod
     def get_type(cls, stype):
-        st = cls._parse_type(stype)
+        st = cls.parse_type(stype)
         if st:
             st, depth = st
             return list if depth > 0 else cls.FUNCS[st]
@@ -1036,11 +1046,11 @@ def extend_dicts(examples, dicts_in, dicts_out):
 
 
 def export_examples(dicts, io_type, suffix):
-    name = '{dir}problem{{num}}{type}'.format(dir=OUT_DIR, type=io_type) + suffix
+    io_type = '_' + io_type if io_type else ''
     for d in dicts:
-        os.makedirs(OUT_DIR, exist_ok=True)
-        with open(name.format(num=d.pop(PBLM_NUM)), 'w') as fout:
-            fout.write(to_json(d))
+        write_to_files(OUT_DIR,
+                       'problem{}{}.{}'.format(d.pop(PBLM_NUM), io_type, suffix),
+                       to_json(d))
 
 PBLM_NUM = 'PNUM'
 
@@ -1108,8 +1118,7 @@ def main():
     check_dir(OUT_DIR)
 
     # Write target dicts to files
-    io_type = '_' + io_type if io_type else ''
-    export_examples(dicts_in, io_type, '.json')
+    export_examples(dicts_in, io_type, 'json')
 
 
 if __name__ == '__main__':
