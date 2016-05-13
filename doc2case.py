@@ -889,8 +889,8 @@ class DocParser:
         re.IGNORECASE)
     # PAT_TYPE_ENTRY_ONE_LINE = re.compile(r'^\s*\*?\s*(\w+(\s*(\[\])*)?)(?:\s|$)') # TODO does not parse param name
     # note: Not all types in method signature end with a dash
-    PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(\w+)?\s*(?:\w+\s+)?[–-]\s*(.+)?$', re.MULTILINE)
-    # TODO cannot parse multi-line comments
+    PAT_TYPE_ENTRY = re.compile(r'^\s*\*?\s*(\w+(?: *\[\])*)\s*(\w+)?\s*(?:\w+\s+)?[–-]\s*(.+)?$')
+    # TODO cannot parse multi-line comments, or do I need to?
 
     TAB_WIDTH = 4
 
@@ -939,7 +939,7 @@ class DocParser:
                 print()
                 # raise
 
-        if not examples:
+        if not parsed_examples:
             raise ValueError('No valid problem found in this file')
 
         return parsed_examples
@@ -1030,7 +1030,7 @@ def extend_dicts(examples, dicts_in, dicts_out):
             ordinal = offset + i
             
             # Input is always wrapped by a list, no matter how many arguments it has
-            gi.send((ordinal, data_in))
+            gi.send((ordinal, {i: d for i, d in enumerate(data_in)}))
  
             if len(data_out) == 1:
                 # TypeParser always wraps data with a list, which should
@@ -1108,10 +1108,8 @@ def main():
     else:
         targets = (OrderedDict() for _ in iter(int, 1))
 
-    # Set saving destinations
+    # Turn data into output dicts
     dicts_in = dicts_out = [OrderedDict() for _ in range(len(examples))]
-
-    # Join examples with target dicts
     extend_dicts(examples, dicts_in, dicts_out)
 
     # Check output directory
