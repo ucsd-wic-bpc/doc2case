@@ -5,7 +5,7 @@ import re
 import datetime
 
 from doc2case import DocParser, TypeParser
-from utils import print_list, check_dir, write_to_files
+from utils import print_list, check_dir, write_to_files, align
 
 OUT_DIR = 'templates'
 
@@ -38,17 +38,16 @@ class TemplateGenerator:
         2: WI,
         3: WI,
     }
+    del SP, FA, WI
 
     SIGNATURE = ''
 
     HEADER = ''
 
-    LIB = ''
-    LIB_PATHS = []
-    PAT_HEADER_CMT = re.compile(r'/\*[^*]*\*+(?:[^*/][^*]*\*+)*/')
-
     SIGN_PADDING = ''
     PARAM_TEMPLATE = ''
+
+    LIB = ''
 
     SUFFIX = 'txt'
 
@@ -66,23 +65,25 @@ class TemplateGenerator:
             pname = toCamelCase(pname)
             params = validate(params)
             [ret] = validate(ret)
-            write_to_files(OUT_DIR,
-                           'Problem{}.{}'.format(pnum, self.SUFFIX),
-                           self._generate(pnum, pname, params, ret))
+            code = '\n'.join(b for b in self._generate(
+                pnum, pname, params, ret) if not b.isspace())
+            filename = 'Problem{}.{}'.format(pnum, self.SUFFIX)
+            write_to_files(OUT_DIR, filename, code)
 
     @classmethod
     def _generate(cls, pnum, pname, params, ret):
         '''
         :param str, [(str, str, str)], (str, str):
             problem_name, [(param_type, param_name, param_desc)], (return_name, return_desc)
+        :return [str]:
         '''
-        return '\n'.join(b for b in [
+        return [
             cls._gen_header(),
             cls._gen_sign(params, ret) + cls._gen_method(pname, params, ret),
             cls._gen_banner(),
             cls._gen_lib(),
             cls._gen_main(pname, params, ret)
-        ] if not b.isspace())
+        ]
 
     @classmethod
     def _gen_method(cls, pname, params, ret):
@@ -97,17 +98,16 @@ class TemplateGenerator:
         return cls.HEADER
 
     @classmethod
-    def _join_sign_list(cls, format, params, offset, sep='\n'):
-        return sep.join(cls.SIGN_PADDING + format(*p) for p in params)[offset:]
-
-    @classmethod
     def _gen_sign(cls, params, ret):
+        def join(format, params, offset, sep='\n'):
+            return sep.join(cls.SIGN_PADDING + format(*p) for p in params)[offset:]
+
         ret_stype, _, ret_desc = ret
         ret = [(ret_stype, ret_desc)]
         ret_offset = len(cls.SIGN_PADDING) - len('Parameters') + len('Return')
-        return cls.SIGNATURE.format(
-            params=cls._join_sign_list(cls.PARAM_TEMPLATE.format, params, len(cls.SIGN_PADDING)),
-            ret=cls._join_sign_list('{0} - {1}'.format, ret, ret_offset))
+        return align(cls.SIGNATURE.format(
+            params=join(cls.PARAM_TEMPLATE.format, params, len(cls.SIGN_PADDING)),
+            ret=join('{0} - {1}'.format, ret, ret_offset)))
 
     @classmethod
     def _gen_lib(cls):
@@ -117,37 +117,6 @@ class TemplateGenerator:
     def _gen_banner(cls):
         today = datetime.datetime.today()
         return cls.BPC_BANNER.format(quarter=cls.QUARTER[today.month], year=today.year)
-
-    @classmethod
-    def _load_lib(cls):
-        lib_text = []
-        header = set([cls.HEADER.rstrip('\n\t ')])
-        cmts = ''
-        for path in cls.LIB_PATHS:
-            with open(path) as fin:
-                text = fin.read()
-
-            if not cmts:
-                m = cls.PAT_HEADER_CMT.search(text)
-                if m:
-                    cmts = m.group(0)
-
-            lines = cls.PAT_HEADER_CMT.sub('', text).strip('\n\t ').split('\n')
-            for i, line in enumerate(lines):
-                if cls._is_header(line) or line.isspace():
-                    header.add(line)
-                else:
-                    break
-            lib_text.append('\n')
-            lib_text.extend(lines[i:])
-
-        cls.LIB = cmts + '\n' + '\n'.join(lib_text).strip('\n\t ') + '\n'
-        cls.HEADER = '\n'.join(sorted(header)).strip('\n\t ') + '\n'
-
-        @classmethod
-        def _t(cls):
-            pass
-        cls._load_lib = _t
 
     @classmethod
     def _is_header(cls, line):
@@ -211,7 +180,8 @@ class PythonGenerator(TemplateGenerator):
     @classmethod
     def _gen_method(cls, pname, params, ret):
         return cls.METHOD.format(
-            name=pname, params=', '.join(n for (_, n, _) in params),
+            name=pname,
+            params=', '.join(n for (_, n, _) in params),
             ret=repr(TypeParser.get_type(ret[0])()))
 
     @classmethod
@@ -244,32 +214,28 @@ class CppGenerator(TemplateGenerator):
 
     METHOD = (
         '{ret_type} {name}({params}) {{\n'
-        '  // TODO\n'
-        '  return {ret_val};\n'
+        '{content}'
+        '{ret_val}'
         '}}\n'
     )
 
-    MAIN = (
-        'int main() {{\n'
-        '  string inputContents;\n'
-        '  getline(cin, inputContents);\n'
-        '  JSONList* argumentsList =\n'
-        '    (JSONList*) JSONParser::getObjectFromString(inputContents);\n'
-        '{args_expr}\n'
-        '  cout << ({print_expr}) << endl;\n'
-        '  return 0;\n'
-        '}}\n'
-    )
+    RET_EXPR = 'return {};\n'
+
+    MAIN = METHOD.format(ret_type='int', name='main', params='',
+                         ret_val=indent(RET_EXPR.format(0)),
+                         content='{args_expr}\n{print_expr}\n')
 
     SIGN_PADDING = ' * ' + len('Parameters: ') * ' '
     PARAM_TEMPLATE = '{0} {1} - {2}'
 
+    LIB = ''
     LIB_PATHS = ['jsonFASTParse/C++/json_fast_parse.hpp']
+    PAT_HEADER_CMT = re.compile(r'/\*[^*]*\*+(?:[^*/][^*]*\*+)*/')
 
     DEFAULT_VAL = {
         TypeParser.INT: '0',
         TypeParser.STR: '""',
-        TypeParser.CHR: "''",
+        TypeParser.CHR: "'0'",
         TypeParser.FLT: '0.0f',
         TypeParser.DBL: '0.0',
         TypeParser.BOOL: 'false',
@@ -280,6 +246,37 @@ class CppGenerator(TemplateGenerator):
     def __init__(self, examples):
         super() .__init__(examples)
         self._load_lib()
+
+    @classmethod
+    def _load_lib(cls):
+        lib_text = []
+        header = set([cls.HEADER.rstrip('\n\t ')])
+        cmts = ''
+        for path in cls.LIB_PATHS:
+            with open(path) as fin:
+                text = fin.read()
+
+            if not cmts:
+                m = cls.PAT_HEADER_CMT.search(text)
+                if m:
+                    cmts = m.group(0)
+
+            lines = cls.PAT_HEADER_CMT.sub('', text).strip('\n\t ').split('\n')
+            for i, line in enumerate(lines):
+                if cls._is_header(line) or line.isspace():
+                    header.add(line)
+                else:
+                    break
+            lib_text.extend(lines[i:])
+            lib_text.append('')
+
+        cls.LIB = cmts + '\n' + '\n'.join(lib_text).strip('\n\t ') + '\n'
+        cls.HEADER = '\n'.join(sorted(header)).strip('\n\t ') + '\n'
+
+        @classmethod
+        def _t(cls):
+            pass
+        cls._load_lib = _t
 
     @classmethod
     def _is_header(cls, line):
@@ -293,16 +290,22 @@ class CppGenerator(TemplateGenerator):
             ret_type=ret_type,
             name=pname,
             params=', '.join('{0} {1}'.format(*p) for p in params),
-            ret_val='null' if depth > 0 else CppGenerator.DEFAULT_VAL[stype])
+            ret_val=indent(cls.RET_EXPR.format('null' if depth > 0 else cls.DEFAULT_VAL[stype])),
+            content=indent('// TODO;\n'))
 
     @classmethod
     def _gen_main(cls, pname, params, ret):
         return cls.MAIN.format(
             args_expr=indent(cls._gen_args_expr(pname, params, ret)),
-            print_expr=cls._gen_print_expr(pname, params, ret))
+            print_expr=indent(cls._gen_print_expr(pname, params, ret)))
 
     @classmethod
     def _gen_args_expr(cls, pname, params, ret):
+        'string inputContents;\n'
+        'getline(cin, inputContents);\n'
+        'JSONList* argumentsList =\n'
+        '  (JSONList*) JSONParser::getObjectFromString(inputContents);\n'
+        pass
         # def new_array(lv, last_list_name, arr_name, top_lv_index=None):
         #     def apfmt(fmt, **kwargs):
         #         exprs.append(TWO_SPCS * lv + fmt.format(**kwargs))
@@ -336,6 +339,8 @@ class CppGenerator(TemplateGenerator):
 
     @classmethod
     def _gen_print_expr(cls, pname, params, ret):
+        'cout << ({print_expr}) << endl;\n'
+        pass
         # print_expr = '{}({})'.format(pname, ', '.join(n for (_, n, _) in params))
         # ret_type, _, _ = ret
         # stype, depth = TypeParser.parse_type(ret_type)
@@ -350,11 +355,9 @@ class CppGenerator(TemplateGenerator):
         # else:
         #     cast_func = 'String.valueOf'
         # return '{}({})'.format(cast_func, print_expr)
-        
+
 
 class JavaGenerator(CppGenerator):
-    BPC_BANNER = CppGenerator.BPC_BANNER
-
     HEADER = (
         'import java.util.Arrays;\n'
         'import java.util.Scanner;\n'
@@ -362,14 +365,8 @@ class JavaGenerator(CppGenerator):
 
     METHOD = 'public static ' + CppGenerator.METHOD
 
-    MAIN = (
-        'public static void main(String[] args) {{\n'
-        '  String input = new Scanner(System.in).nextLine();\n'
-        '  JSONList argumentList = (JSONList) JSONParser.getObjectFromString(input);\n'
-        '{args_expr}\n'
-        '  System.out.println({print_expr});\n'
-        '}}'
-    )
+    MAIN = METHOD.format(ret_type='void', name='main', params='String[] args',
+                         ret_val='', content='{args_expr}\n{print_expr}\n')
 
     CLASS = (
         'public class Problem{pnum} {{\n'
@@ -403,13 +400,13 @@ class JavaGenerator(CppGenerator):
 
     @classmethod
     def _generate(cls, pnum, pname, params, ret):
-        return '\n'.join(b for b in [
+        return [
             cls._gen_header(),
             cls._gen_class(pnum,
                            cls._gen_sign(params, ret) + cls._gen_method(pname, params, ret),
                            cls._gen_banner() + cls._gen_main(pname, params, ret)),
             cls._gen_lib(),
-        ] if not b.isspace())
+        ]
 
     @classmethod
     def _gen_class(cls, pnum, body, foot):
@@ -440,7 +437,10 @@ class JavaGenerator(CppGenerator):
             new_array(lv + 1, list_name, '{}[i{}]'.format(arr_name, lv))
             apfmt('}}')
 
-        exprs = []
+        exprs = [
+            'String input = new Scanner(System.in).nextLine();',
+            'JSONList argumentList = (JSONList) JSONParser.getObjectFromString(input);'
+        ]
         for i, (str_type, name, _) in enumerate(params):
             stype, depth = TypeParser.parse_type(str_type)
             exprs.append('{} {};'.format(str_type, name))
@@ -452,6 +452,8 @@ class JavaGenerator(CppGenerator):
     @classmethod
     def _gen_print_expr(cls, pname, params, ret):
         print_expr = '{}({})'.format(pname, ', '.join(n for (_, n, _) in params))
+
+        cast_fmt, cast_func = '{}({})', 'String.valueOf'
         ret_type, _, _ = ret
         stype, depth = TypeParser.parse_type(ret_type)
         if depth > 1:
@@ -459,12 +461,13 @@ class JavaGenerator(CppGenerator):
         elif depth == 1:
             cast_func = 'Arrays.toString'
         elif stype == 'String':
-            return print_expr
+            cast_fmt = '{}{}'
+            cast_func = ''
         elif stype == 'boolean':
-            return '{} ? "True" : "False"'.format(print_expr)
-        else:
-            cast_func = 'String.valueOf'
-        return '{}({})'.format(cast_func, print_expr)
+            cast_fmt = '{1} ? "True" : "False"'
+        print_expr = cast_fmt.format(cast_func, print_expr)
+
+        return 'System.out.println({});\n'.format(print_expr)
 
 
 def parse_args():
@@ -487,11 +490,11 @@ def main():
     check_dir(OUT_DIR)
 
     # Generate templates
-    # def gen(gters):
-    #     for gter in gters:
-    #         gter(examples).generate()
+    def gen(gters):
+        for gter in gters:
+            gter(examples).generate()
+    gen([PythonGenerator, JavaGenerator])
     # gen([PythonGenerator, CppGenerator, JavaGenerator])
-    JavaGenerator(examples).generate()
 
 
 if __name__ == '__main__':
