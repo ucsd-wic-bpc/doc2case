@@ -60,7 +60,7 @@ from collections import OrderedDict, Iterable
 from itertools import chain
 import argparse
 
-from utils import print_list, check_dir, write_to_files
+from utils import print_list, check_dir, write_to_files, to_readable, indent
 
 OUT_DIR = 'cases/'
 
@@ -245,8 +245,10 @@ class TypeParser:
             try:
                 data = self.cast(data)
             except TypeError as e:
-                e.args = ('{}: type ( {} ) is required, but type ( {} ) is given in {}'.format(
-                    e.args[0], ' * '.join(t + self._LIST * d for t, d in self.types), ' * '.join(stypes), repr(text)),)
+                ts_expected = ' * '.join(t + self._LIST * d for t, d in self.types)
+                ts_actual = ' * '.join(stypes)
+                e.args = ('{}: type ( {} ) is required, but type ( {} ) is given in \n{}'.format(
+                    e.args[0], ts_expected, ts_actual, to_readable(text)),)
                 raise
         # print(data)
         return data
@@ -472,7 +474,14 @@ class Tokenizer:
         try:
             return self._run(text)
         except SyntaxError as e:
-            e.args = ('{} at index {} in {}'.format(e.args[0], self.i, repr(self.text)),)
+            MARKER = chr(0)
+            i, text = self.i, self.text
+            ch = text[i]
+            text = text[:i] + MARKER + text[i+1:]
+            text = to_readable(text)
+            i = text.index(MARKER)
+            text = text[:i] + ch + text[i+1:]
+            e.args = ('{} at index {} in \n{}'.format(e.args[0], i, text),)
             raise
 
     def _run(self, text):
@@ -720,8 +729,8 @@ class ExampleParser:
             # TODO how about cmts?
             cases = [(case, []) for case in cases] if cases else self._parse_cases()
             return [(self.params.parse(i), self.rets.parse(o), cmts) for (i, o), cmts in cases]
-        except (ValueError, SyntaxError) as e:
-            raise type(e)('{} in {}'.format(e.args[0], repr(self.text))) from e
+        except ValueError as e:
+            raise type(e)('{} in \n{}'.format(e.args[0], to_readable(self.text))) from e
 
     def _parse_cases(self):
         """
@@ -885,7 +894,8 @@ class DocParser:
     """The top-level parser."""
     PAT_BRKTS = re.compile(r'(?<=\n)(\[\w\]).*?\n')
     PAT_EXAMPLE = re.compile(
-        r'(?:Problem\s*(\d+):\s*(.+?)\n(?:.|\n)+?)?Examples?\s*:\n[\s\n]*((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:?[\s\n]*/\*[\s\n]*((?:.|\n)+?)\s*\*/',
+        r'(?:Problem\s*(\d+)\s*:?(.+?)\n(?:.|\n)+?)?Examples?\s*:\n[\s\n]*((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:?[\s\n]*/\*[\s\n]*((?:.|\n)+?)\s*\*/',
+        # r'(?:Problem\s*(\d+)\s*:?.*\n(.+?)\n(?:.|\n)+?)?Examples?\s*:\n[\s\n]*((?:.|\n)+?)(?:Sample File Format\s*:\n(?:.|\n)+?)?Required Method Signature\s*:?[\s\n]*/\*[\s\n]*((?:.|\n)+?)\s*\*/',
         re.IGNORECASE)
     # PAT_TYPE_ENTRY_ONE_LINE = re.compile(r'^\s*\*?\s*(\w+(\s*(\[\])*)?)(?:\s|$)') # TODO does not parse param name
     # note: Not all types in method signature end with a dash
@@ -929,14 +939,15 @@ class DocParser:
                 example = ExampleParser(str_data, ts_params, ts_ret).parse()
                 if not pnum:
                     default_pnum += 1
-                    pnum = '_default_{}'.format(default_pnum)
+                    pnum = '_unknown#_{}'.format(default_pnum)
                 parsed_examples.append((pnum, example))
 
             except Exception as e:
-                location = ' at {} {}'.format('problem', pnum) if pnum else ''
-                e.args = (e.args[0] + location,)
-                print(e)
+                header = 'Exception at problem {}'.format(pnum if pnum else 'unknown')
+                msg = '>>> {}: {}'.format(header, e.args[0])
+                print(msg)
                 print()
+                # e.args = (msg,)
                 # raise
 
         if not parsed_examples:
