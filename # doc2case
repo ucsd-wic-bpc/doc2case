@@ -1,0 +1,177 @@
+# doc2case
+
+This tool is especially designed for BPC members to write I/O examples. It transcribe I/O examples in a problem set
+ document-style I/O from the problem sets into the JSON for further .
+
+
+
+## Supported Syntax
+
+
+Readability is the major syntax.
+
+
+
+Freestyle
+
+```
+[[0, 0, 0],       [[3, 2, 1],
+ [0, 0, 1],   =>   [2, 1, 0],
+ [0, 0, 0]]        [3, 2, 1]]
+```
+would result in 
+
+```
+{
+   "cases": {
+      "0": {
+         "input": [
+            [[0, 0, 0], [0, 0, 1], [0, 0, 0]]
+         ],
+         "output": [
+            [3, 2, 1],
+            [2, 1, 0],
+            [3, 2, 1]
+         ]
+      }
+   }
+}
+```
+
+Although parse JSON, 
+Don't have to strictly stick to JSON format
+
+```
+90.7, 16, ‘B’      =>    True
+
+Livin’ on a prayer        =>         false
+
+[S, X, X, X, B]
+[X, X, X, B, X]
+[X, X, B, X, X]    =>    true
+[X, X, X, B, X]
+[X, X, X, X, X]
+```
+
+would be turned into 
+
+```
+{
+   "cases": {
+      "0": {
+         "input": [90.7, 16, "2"],
+         "output": true
+      },
+      "1": {
+         "input": ["Livin’ on a prayer"],
+         "output": false
+      },
+      "2": {
+         "input": [
+            ["S", "X", "X", "X", "B"],
+            ["X", "X", "X", "B", "X"],
+            ["X", "X", "B", "X", "X"],
+            ["X", "X", "X", "B", "X"],
+            ["X", "X", "X", "X", "X"]
+         ],
+         "output": true
+      }
+   }
+}
+```
+
+
+Or when the type of data is ambiguous, the script will seek nearby method signature for a hint:
+
+```
+Examples:
+Hello, goodbye                  =>         true
+
+Required Method Signature:
+/*
+ * Parameters:          String words - the words to sing
+ * Return:              boolean - whether or not he loses his voice
+ */
+public static boolean soYouThinkYouCanSing( String words ){
+         //TODO
+}
+
+Examples:
+Sample input:
+8
+AAAA
+AACB
+BBAA
+AAAA
+ABC
+
+Sample output:
+7
+
+Required Method Signature:
+/*
+ * Parameters:  double, char[][], string
+ * Return:      int
+ */
+public static int method2( double param1, char[][] param2, string param3) {
+         //TODO
+}
+```
+
+produces (two files):
+
+```
+{
+   "cases": {
+      "0": {
+         "input": "Hello, goodbye",
+         "output": true
+      }
+   }
+}
+
+{
+   "cases": {
+      "0": {
+         "input": [
+            8.0,
+            [["A", "A", "A", "A"], ["A", "A", "C", "B"], ["B", "B", "A", "A"], ["A", "A", "A", "A"]],
+            "ABC"
+         ],
+         "output": 7
+      }
+   }
+}
+```
+
+
+Comments
+
+```
+“Anna”, “Bob”  => 24 ( all permutations of ‘a’, ‘o’, ‘b’, ‘n’ )
+```
+
+means
+
+```
+{
+   "cases": {
+      "0": {
+         "input": ["Anna", "Bob"],
+         "output": 24,
+         "comments": ["( all permutations of ‘a’, ‘o’, ‘b’, ‘n’ )"]
+      }
+   }
+}
+```
+
+## Usage
+
+See also `./doc2case.py -h`
+
+```
+$ ./doc2case.py -m ~/Dropbox/WiC-BPC-Fa15/Solutions/dev/cases -t=corner ./Fa15ASkyFullofUnicorns.txt
+```
+
+A folder called "cases" will be created in the current working directory. A file will be created for each of your IO in ./Fa15ASkyFullofUnicorns.txt with the corresponding IO file in ~/Dropbox/WiC-BPC-Fa15/Solutions/dev/cases joined. The files are named from "problem1_corner.json" to "problem15_corner.json". They do not overwrite the files in /dev/cases in case you want to check the accuracy before updating. 
+

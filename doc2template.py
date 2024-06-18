@@ -5,19 +5,9 @@ import re
 import datetime
 
 from doc2case import DocParser, TypeParser
-from utils import print_list, check_dir, write_to_files, align
+from utils import print_list, check_dir, write_to_files, align, indent, toCamelCase, TWO_SPCS
 
 OUT_DIR = 'templates'
-
-TWO_SPCS = ' ' * 2
-
-
-def indent(text, spaces=TWO_SPCS):
-    return '\n'.join(spaces + l for l in text.split('\n'))
-
-
-def toCamelCase(s):
-    return ''.join(w.capitalize() if i != 0 else w for i, w in enumerate(s.lower().split()))
 
 
 class TemplateGenerator:
@@ -47,7 +37,7 @@ class TemplateGenerator:
     SIGN_PADDING = ''
     PARAM_TEMPLATE = ''
 
-    LIB = ''
+    LIB = None
 
     SUFFIX = 'txt'
 
@@ -111,7 +101,7 @@ class TemplateGenerator:
 
     @classmethod
     def _gen_lib(cls):
-        return cls.LIB
+        return cls.LIB if cls.LIB is not None eles ''
 
     @classmethod
     def _gen_banner(cls):
@@ -228,9 +218,10 @@ class CppGenerator(TemplateGenerator):
     SIGN_PADDING = ' * ' + len('Parameters: ') * ' '
     PARAM_TEMPLATE = '{0} {1} - {2}'
 
-    LIB = ''
+    LIB = None
     LIB_PATHS = ['jsonFASTParse/C++/json_fast_parse.hpp']
     PAT_HEADER_CMT = re.compile(r'/\*[^*]*\*+(?:[^*/][^*]*\*+)*/')
+    _lib_loaded = False
 
     DEFAULT_VAL = {
         TypeParser.INT: '0',
@@ -249,6 +240,9 @@ class CppGenerator(TemplateGenerator):
 
     @classmethod
     def _load_lib(cls):
+        if cls.LIB is not None:
+            return
+
         lib_text = []
         header = set([cls.HEADER.rstrip('\n\t ')])
         cmts = ''
@@ -272,11 +266,6 @@ class CppGenerator(TemplateGenerator):
 
         cls.LIB = cmts + '\n' + '\n'.join(lib_text).strip('\n\t ') + '\n'
         cls.HEADER = '\n'.join(sorted(header)).strip('\n\t ') + '\n'
-
-        @classmethod
-        def _t(cls):
-            pass
-        cls._load_lib = _t
 
     @classmethod
     def _is_header(cls, line):
@@ -377,12 +366,12 @@ class JavaGenerator(CppGenerator):
         '}}\n\n'
     )
 
+    LIB = None
     LIB_PATHS = [
         'jsonFASTParse/Java/JSONList.java',
         'jsonFASTParse/Java/JSONObject.java',
         'jsonFASTParse/Java/JSONParser.java'
     ]
-
     LIB_CAST = {
         TypeParser.INT: 'castToInt',
         TypeParser.FLT: 'castToDouble',
